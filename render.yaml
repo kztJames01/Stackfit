@@ -5,10 +5,14 @@ services:
     plan: free
     image:
       url: ghcr.io/kztjames01/stackserve-mcp:0.1.0
-    dockerCommand: serve-http --allow-unauthenticated
+    dockerCommand: serve-http
     healthCheckPath: /healthz
     envVars:
       - key: STACKSERVE_HTTP_RATE_LIMIT_PER_MIN
         value: "60"
       - key: STACKSERVE_WORKER_STARTUP_TIMEOUT_SECS
         value: "60"
+      # Bearer token required by serve-http. Set the value in the Render
+      # dashboard; `sync: false` keeps it out of the blueprint and out of git.
+      - key: STACKSERVE_HTTP_BEARER_TOKEN
+        sync: false

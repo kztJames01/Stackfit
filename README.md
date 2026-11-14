@@ -62,6 +62,22 @@ Add to `opencode.json` or `kilo.jsonc`:
 }
 ```
 
+## Authentication
+
+The hosted endpoint (`https://mcp.stackserve.net/mcp`) is protected by Cloudflare Access with managed OAuth. Add the URL to your client as usual: on first use the client opens a browser sign-in and then stores the session. There is no token to copy or rotate.
+
+- Clients with MCP OAuth support (Claude Code, Cursor, Inspector, ChatGPT connectors) need no extra configuration.
+- Clients that cannot complete an OAuth flow can use an Access service token (`CF-Access-Client-Id` and `CF-Access-Client-Secret` headers) issued by the maintainer, or run the server locally.
+- `/healthz` stays unauthenticated so platform health checks keep working.
+
+Self-hosted HTTP fails closed: `serve-http` will not start without a bearer token.
+
+```sh
+STACKSERVE_HTTP_BEARER_TOKEN="$(openssl rand -hex 32)" stackserve-mcp serve-http --bind 127.0.0.1:8787
+```
+
+Clients then send `Authorization: Bearer <token>` to `/mcp`. Set `STACKSERVE_HTTP_ALLOWED_HOSTS` (comma-separated) when serving behind a domain the server does not already allow.
+
 ## Offline Local CLI & Docker
 
 Run completely offline without network access:

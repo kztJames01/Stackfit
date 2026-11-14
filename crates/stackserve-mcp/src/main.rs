@@ -594,6 +594,29 @@ async fn add_cors_headers(request: Request<Body>, next: Next) -> Response {
     response
 }
 
+fn resolve_allowed_hosts() -> Vec<String> {
+    let mut hosts: Vec<String> = vec![
+        "127.0.0.1".to_owned(),
+        "localhost".to_owned(),
+        "mcp.stackserve.net".to_owned(),
+        "stackfit-wlbs.onrender.com".to_owned(),
+    ];
+    if let Ok(render_host) = std::env::var("RENDER_EXTERNAL_HOSTNAME") {
+        let trimmed = render_host.trim();
+        if !trimmed.is_empty() && !hosts.iter().any(|h| h == trimmed) {
+            hosts.push(trimmed.to_owned());
+        }
+    }
+    if let Ok(extra) = std::env::var("STACKSERVE_HTTP_ALLOWED_HOSTS") {
+        for item in extra.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            if !hosts.iter().any(|h| h == item) {
+                hosts.push(item.to_owned());
+            }
+        }
+    }
+    hosts
+}
+
 fn build_http_router(worker: Arc<Worker>, bearer_token: Option<String>) -> Router {
     build_http_router_with_limit(worker, bearer_token, resolve_http_rate_limit())
 }
@@ -604,6 +627,8 @@ fn build_http_router_with_limit(
     rate_limit_per_min: u32,
 ) -> Router {
     let request_ids = Arc::new(AtomicU64::new(1));
+    let mut config = StreamableHttpServerConfig::default();
+    config.allowed_hosts = resolve_allowed_hosts();
     let mcp_service = StreamableHttpService::new(
         move || {
             Ok(Server {
@@ -612,7 +637,7 @@ fn build_http_router_with_limit(
             })
         },
         LocalSessionManager::default().into(),
-        StreamableHttpServerConfig::default(),
+        config,
     );
 
     let mcp_router = Router::new()
@@ -826,5 +851,29 @@ mod tests {
                 .unwrap(),
             "Mcp-Session-Id"
         );
+    }
+
+    #[tokio::test]
+    async fn http_mcp_allows_public_host_header() {
+        let root = root_dir();
+        let app = build_http_router_with_limit(
+            Arc::new(Worker::new(
+                root.join("python/stackserve_rag/.venv/bin/python"),
+                root.join("python/stackserve_rag"),
+            )),
+            None,
+            60,
+        );
+        let init_body = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}"#;
+        let req = Request::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header(header::HOST, "mcp.stackserve.net")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::ACCEPT, "application/json, text/event-stream")
+            .body(Body::from(init_body))
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 }
